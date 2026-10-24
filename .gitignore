@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Stubs generados con scripts/gen_proto.py
+src/proto/gen/*
+!src/proto/gen/.gitkeep
+
+# Datos de los nodos
+data/
+
+# Secretos: nunca al repositorio
+.env
+certs/
+*.key
+*.pem
+*.crt
+deploy/aws-salida/
+
+# Editores y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

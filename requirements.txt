@@ -1,0 +1,10 @@
+# Versiones fijas: el contenedor y el entorno local usan exactamente
+# las mismas bibliotecas.
+grpcio==1.83.1
+grpcio-tools==1.83.1
+protobuf==7.36.1
+
+# Raft entre ControlNodes
+pysyncobj==0.3.14
+# AES-GCM, certificados para mTLS y cifrado del trafico de Raft
+cryptography==50.0.2

@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package dfsha;
+
+import "dfsha_common.proto";
+
+// =====================================================================
+//  2. Cliente <-> DataNode   (plano de datos)
+//     y DataNode <-> DataNode (pipeline de replicacion, semana 11)
+//
+//  Aqui van los bytes, y el NameNode no participa. Es lo que evita que
+//  se vuelva cuello de botella: el metadato pesa bytes, el archivo
+//  pesa gigas, y cada uno viaja por su lado.
+//
+//  Cada operacion lleva un access_token firmado por el NameNode. El
+//  DataNode lo valida solo, sin preguntarle a nadie.
+// =====================================================================
+service DataNodeService {
+  // Si el header trae pipeline, el DataNode reenvia el bloque al
+  // siguiente: cliente -> DN1 -> DN2 -> DN3.
+  rpc PutBlock    (stream BlockChunk)  returns (PutBlockResponse);
+  rpc GetBlock    (GetBlockRequest)    returns (stream BlockChunk);
+  rpc DeleteBlock (BlockRef)           returns (dfsha.StatusResponse);
+
+  // Copia un bloque local hacia otros DataNodes (re-replicacion).
+  rpc ReplicateTo (ReplicateRequest)   returns (dfsha.StatusResponse);
+}
+
+
+message BlockHeader {
+  string   block_id     = 1;
+  uint64   size         = 2;       // bytes que viajan (ya cifrados)
+  string   access_token = 3;
+  repeated string pipeline = 4;    // siguientes replicas
+}
+
+// El primer mensaje del stream lleva header; los siguientes, data.
+message BlockChunk {
+  oneof payload {
+    BlockHeader header = 1;
+    bytes       data   = 2;
+  }
+}
+
+message PutBlockResponse {
+  bool     ok       = 1;
+  string   sha256   = 2;
+  string   message  = 3;
+  repeated string replicas = 4;    // donde quedo de verdad
+}
+
+message GetBlockRequest {
+  string block_id     = 1;
+  string access_token = 2;
+}
+
+message BlockRef {
+  string block_id     = 1;
+  string access_token = 2;
+}
+
+message ReplicateRequest {
+  string   block_id     = 1;
+  repeated string targets = 2;
+  string   access_token = 3;       // de escritura, para los targets
+}

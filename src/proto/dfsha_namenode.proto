@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package dfsha;
+
+import "dfsha_common.proto";
+
+// =====================================================================
+//  1. Cliente <-> NameNode   (plano de control)
+//
+//  Por aqui no pasa un solo byte de los archivos: solo metadatos y
+//  permisos. El NameNode dice donde poner y donde buscar; los datos
+//  van por el otro plano.
+//
+//  Semana 12: hay varios NameNodes replicados con Raft. Solo el lider
+//  atiende; los demas responden UNAVAILABLE y el cliente busca al lider
+//  con Ping.
+// =====================================================================
+service NameNodeService {
+
+  // --- RF1: gestion del namespace ---
+  rpc Ls     (PathRequest)  returns (LsResponse);
+  rpc Mkdir  (PathRequest)  returns (dfsha.StatusResponse);
+  rpc Rmdir  (PathRequest)  returns (dfsha.StatusResponse);
+  rpc Rm     (PathRequest)  returns (dfsha.StatusResponse);
+  rpc Stat   (PathRequest)  returns (FileInfo);
+  rpc Chmod  (ChmodRequest) returns (dfsha.StatusResponse);
+
+  // --- RF2/RF3: ciclo de vida de escritura (WORM) ---
+  // Create otorga el lease (el lock de escritor unico) y devuelve donde
+  // poner cada bloque. El archivo queda UNDER_CONSTRUCTION: invisible
+  // para Ls.
+  rpc Create   (CreateRequest)   returns (CreateResponse);
+  // AddBlock agrega un bloque a un archivo en construccion. Es lo que
+  // permite escribir sin saber el tamano final (write() del SDK).
+  rpc AddBlock (AddBlockRequest) returns (BlockAssignment);
+  // Renew extiende el lease mientras la subida sigue viva.
+  rpc Renew    (LeaseRequest)    returns (dfsha.StatusResponse);
+  // Complete hace el commit: el archivo pasa a COMMITTED e inmutable.
+  rpc Complete (CompleteRequest) returns (dfsha.StatusResponse);
+  rpc Abort    (LeaseRequest)    returns (dfsha.StatusResponse);
+
+  // --- RF2/RF3: lectura ---
+  rpc Open (PathRequest) returns (OpenResponse);
+
+  // --- autenticacion (semana 7) ---
+  // El login tiene que ocurrir en el servidor: si el cliente firmara su
+  // propio token necesitaria el secreto, y el token no valdria nada.
+  rpc Login (LoginRequest) returns (LoginResponse);
+
+  // --- salud y descubrimiento de lider (semana 12) ---
+  rpc Ping (dfsha.Empty) returns (PingResponse);
+}
+
+
+message PingResponse {
+  string node_id     = 1;
+  bool   is_leader   = 2;   // si es false, leader_addr apunta al lider
+  string leader_addr = 3;   // vacio si todavia no hay lider
+}
+
+// --- autenticacion ---
+
+message LoginRequest {
+  string user     = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string token      = 1;
+  int64  expires_at = 2;   // epoch en segundos; informativo para el cliente
+}
+
+// --- namespace ---
+
+message PathRequest {
+  string path  = 1;
+  string token = 2;
+}
+
+message LsResponse {
+  repeated dfsha.Entry entries = 1;
+}
+
+message FileInfo {
+  string          path       = 1;
+  bool            is_dir     = 2;
+  uint64          size       = 3;
+  uint32          num_blocks = 4;
+  dfsha.FileState state      = 5;
+  int64           created_at = 6;
+  string          owner      = 7;
+  string          group      = 8;
+  uint32          mode       = 9;
+}
+
+message ChmodRequest {
+  string path  = 1;
+  uint32 mode  = 2;
+  string group = 3;   // vacio = no cambia el grupo
+  string token = 4;
+}
+
+// --- escritura ---
+
+message CreateRequest {
+  string path  = 1;
+  uint64 size  = 2;   // tamano total; 0 si se va a escribir con AddBlock
+  string token = 3;
+}
+
+message BlockAssignment {
+  string   block_id     = 1;
+  uint32   index        = 2;        // orden dentro del archivo
+  uint64   size         = 3;
+  repeated string datanodes = 4;    // replicas; la primera es el head del pipeline
+  string   access_token = 5;        // firmado por el NameNode
+}
+
+message CreateResponse {
+  string   lease_id   = 1;
+  repeated BlockAssignment blocks = 2;
+  uint64   block_size = 3;          // con el que parte el NameNode
+  int64    lease_expires_at = 4;
+}
+
+message AddBlockRequest {
+  string lease_id = 1;
+  uint64 size     = 2;
+  string token    = 3;
+}
+
+message BlockChecksum {
+  string block_id = 1;
+  string sha256   = 2;
+}
+
+message CompleteRequest {
+  string   path     = 1;
+  string   lease_id = 2;            // el lease ES la credencial aqui
+  repeated BlockChecksum checksums = 3;
+}
+
+message LeaseRequest {
+  string lease_id = 1;
+  string token    = 2;
+}
+
+// --- lectura ---
+
+message BlockLocation {
+  string   block_id     = 1;
+  uint32   index        = 2;
+  uint64   size         = 3;
+  repeated string datanodes = 4;   // las replicas vivas
+  string   sha256       = 5;
+  string   access_token = 6;
+}
+
+message OpenResponse {
+  uint64   size = 1;
+  repeated BlockLocation blocks = 2;
+}

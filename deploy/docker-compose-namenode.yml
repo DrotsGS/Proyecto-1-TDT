@@ -1,0 +1,37 @@
+# UN NameNode por maquina (AWS EC2 o GCP). Mismo patron que el
+# docker-compose-solo-*.yml del taller de nginx: un archivo por rol y las
+# IPs privadas en variables, que salen de deploy/.env (ver .env.ejemplo).
+#
+#   cd ~/dfsha/deploy
+#   cp .env.ejemplo .env      y llenar las IPs privadas y los secretos
+#   docker compose -f docker-compose-namenode.yml --env-file .env up -d
+#
+# network_mode host: Raft necesita escuchar en la IP privada de la
+# maquina y anunciarse con ella; detras del NAT de Docker no podria.
+services:
+  namenode:
+    image: ${DFSHA_IMAGEN:-dfsha:latest}
+    build: ..
+    container_name: dfsha-namenode
+    restart: unless-stopped
+    network_mode: host
+    command: python src/namenode/server.py
+    environment:
+      NODE_ID: ${NODE_ID}
+      PORT: "50051"
+      RAFT_SELF: ${MI_IP}:50052
+      RAFT_PEERS: ${RAFT_PEERS}
+      RAFT_DIR: /raft
+      RAFT_PASSWORD: ${RAFT_PASSWORD}
+      NAMENODES_CLIENTE: ${NAMENODES_CLIENTE}
+      DFSHA_TLS: "1"
+      DFSHA_SECRET: ${DFSHA_SECRET}
+      DFSHA_BLOCK_SECRET: ${DFSHA_BLOCK_SECRET}
+      DFSHA_REPLICATION: "3"
+    volumes:
+      - ./certs:/app/certs:ro
+      - raft:/raft
+      - ./usuarios.json:/app/deploy/usuarios.json:ro
+
+volumes:
+  raft:

@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package dfsha;
+
+import "dfsha_common.proto";
+
+// =====================================================================
+//  3. NameNode <-> DataNode   (siempre iniciado por el DataNode)
+//
+//  El NameNode NUNCA abre una conexion hacia un DataNode. Los comandos
+//  viajan piggyback en la respuesta al heartbeat. No es un capricho:
+//  resuelve NAT y firewalls, y hace que agregar un DataNode no requiera
+//  tocar nada en el NameNode.
+//
+//  Semana 12: el DataNode late hacia TODOS los NameNodes. Asi el que
+//  gane la eleccion ya sabe que nodos estan vivos y que bloques tienen.
+//  Solo el lider manda comandos.
+// =====================================================================
+service ControlService {
+  rpc Heartbeat     (HeartbeatRequest)     returns (HeartbeatResponse);
+  rpc BlockReport   (BlockReportRequest)   returns (dfsha.StatusResponse);
+  rpc BlockReceived (BlockReceivedRequest) returns (dfsha.StatusResponse);
+}
+
+
+message HeartbeatRequest {
+  string node_id    = 1;
+  string addr       = 2;   // host:puerto donde el cliente lo alcanza
+  uint64 free_bytes = 3;
+  uint32 num_blocks = 4;
+}
+
+message ReplicateCommand {
+  string   block_id     = 1;
+  repeated string targets = 2;
+  string   access_token = 3;   // de escritura, firmado por el NameNode
+}
+
+message DeleteCommand {
+  repeated string block_ids = 1;
+}
+
+message Command {
+  oneof cmd {
+    ReplicateCommand replicate = 1;
+    DeleteCommand    remove    = 2;
+  }
+}
+
+message HeartbeatResponse {
+  repeated Command commands = 1;   // piggyback
+  bool     is_leader = 2;
+}
+
+message BlockReportRequest {
+  string   node_id = 1;
+  repeated string block_ids = 2;
+}
+
+message BlockReceivedRequest {
+  string node_id  = 1;
+  string block_id = 2;
+  string sha256   = 3;
+}

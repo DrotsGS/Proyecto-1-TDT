@@ -1,0 +1,29 @@
+# UN DataNode por maquina. Ver docker-compose-namenode.yml y .env.ejemplo.
+#
+#   docker compose -f docker-compose-datanode.yml --env-file .env up -d
+#
+# ADVERTISE_ADDR es la direccion por la que los CLIENTES alcanzan a este
+# DataNode: la IP privada si el cliente esta en la VPC, la publica si el
+# cliente corre desde tu portatil.
+services:
+  datanode:
+    image: ${DFSHA_IMAGEN:-dfsha:latest}
+    build: ..
+    container_name: dfsha-datanode
+    restart: unless-stopped
+    network_mode: host
+    command: python src/datanode/server.py
+    environment:
+      NODE_ID: ${NODE_ID}
+      PORT: "50060"
+      ADVERTISE_ADDR: ${ADVERTISE_IP}:50060
+      NAMENODE_ADDR: ${NAMENODE_ADDR}
+      DATA_DIR: /data
+      DFSHA_TLS: "1"
+      DFSHA_BLOCK_SECRET: ${DFSHA_BLOCK_SECRET}
+    volumes:
+      - ./certs:/app/certs:ro
+      - datos:/data
+
+volumes:
+  datos:

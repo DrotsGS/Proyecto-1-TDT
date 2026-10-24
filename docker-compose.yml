@@ -1,0 +1,132 @@
+# El cluster completo en una sola maquina: 3 ControlNodes con Raft y
+# 4 DataNodes, cada uno en su contenedor. Necesita Docker (Docker Desktop
+# con WSL2 en Windows). En AWS se usan los compose por rol de deploy/.
+#
+#   python scripts/gen_certs.py               (una vez: certs/ para mTLS)
+#   docker compose up --build -d
+#   docker compose run --rm cliente python src/client/cli.py login drots --password dfsha
+#   docker compose run --rm cliente python src/client/cli.py ls /
+#   docker compose stop namenode-1            (matar al lider y seguir)
+#   docker compose down -v
+#
+# Sin mTLS:  DFSHA_TLS=0 docker compose up --build -d
+#
+# Para maquinas separadas (AWS) se usan los archivos por rol de deploy/,
+# igual que en el taller de nginx: un docker-compose por tipo de nodo.
+
+x-comun: &comun
+  build: .
+  restart: unless-stopped
+  volumes:
+    - ./certs:/app/certs:ro
+  environment: &env
+    DFSHA_TLS: "${DFSHA_TLS:-1}"
+    DFSHA_SECRET: "${DFSHA_SECRET:-cambia-este-secreto}"
+    DFSHA_BLOCK_SECRET: "${DFSHA_BLOCK_SECRET:-cambia-este-tambien}"
+    DFSHA_REPLICATION: "3"
+
+x-namenode: &namenode
+  <<: *comun
+  command: python src/namenode/server.py
+
+x-datanode: &datanode
+  <<: *comun
+  command: python src/datanode/server.py
+  depends_on: [namenode-1, namenode-2, namenode-3]
+
+services:
+  namenode-1:
+    <<: *namenode
+    volumes: [./certs:/app/certs:ro, nn1:/raft]
+    environment:
+      <<: *env
+      NODE_ID: nn-1
+      PORT: "50051"
+      RAFT_SELF: namenode-1:50052
+      RAFT_PEERS: namenode-2:50052,namenode-3:50052
+      RAFT_DIR: /raft
+      RAFT_PASSWORD: "${RAFT_PASSWORD:-cambia-la-clave-de-raft}"
+      NAMENODES_CLIENTE: &mapa namenode-1:50052=namenode-1:50051,namenode-2:50052=namenode-2:50051,namenode-3:50052=namenode-3:50051
+    ports: ["50051:50051"]
+
+  namenode-2:
+    <<: *namenode
+    volumes: [./certs:/app/certs:ro, nn2:/raft]
+    environment:
+      <<: *env
+      NODE_ID: nn-2
+      PORT: "50051"
+      RAFT_SELF: namenode-2:50052
+      RAFT_PEERS: namenode-1:50052,namenode-3:50052
+      RAFT_DIR: /raft
+      RAFT_PASSWORD: "${RAFT_PASSWORD:-cambia-la-clave-de-raft}"
+      NAMENODES_CLIENTE: *mapa
+    ports: ["50052:50051"]
+
+  namenode-3:
+    <<: *namenode
+    volumes: [./certs:/app/certs:ro, nn3:/raft]
+    environment:
+      <<: *env
+      NODE_ID: nn-3
+      PORT: "50051"
+      RAFT_SELF: namenode-3:50052
+      RAFT_PEERS: namenode-1:50052,namenode-2:50052
+      RAFT_DIR: /raft
+      RAFT_PASSWORD: "${RAFT_PASSWORD:-cambia-la-clave-de-raft}"
+      NAMENODES_CLIENTE: *mapa
+    ports: ["50053:50051"]
+
+  datanode-1:
+    <<: *datanode
+    volumes: [./certs:/app/certs:ro, dn1:/data]
+    environment: &envdn
+      <<: *env
+      NODE_ID: dn-1
+      PORT: "50060"
+      ADVERTISE_ADDR: datanode-1:50060
+      NAMENODE_ADDR: namenode-1:50051,namenode-2:50051,namenode-3:50051
+      DATA_DIR: /data
+
+  datanode-2:
+    <<: *datanode
+    volumes: [./certs:/app/certs:ro, dn2:/data]
+    environment:
+      <<: *envdn
+      NODE_ID: dn-2
+      ADVERTISE_ADDR: datanode-2:50060
+
+  datanode-3:
+    <<: *datanode
+    volumes: [./certs:/app/certs:ro, dn3:/data]
+    environment:
+      <<: *envdn
+      NODE_ID: dn-3
+      ADVERTISE_ADDR: datanode-3:50060
+
+  datanode-4:
+    <<: *datanode
+    volumes: [./certs:/app/certs:ro, dn4:/data]
+    environment:
+      <<: *envdn
+      NODE_ID: dn-4
+      ADVERTISE_ADDR: datanode-4:50060
+
+  # El cliente vive en la misma red: alcanza a los DataNodes por nombre.
+  cliente:
+    <<: *comun
+    restart: "no"
+    environment:
+      <<: *env
+      DFSHA_CERT: cliente
+      NAMENODE_ADDR: namenode-1:50051,namenode-2:50051,namenode-3:50051
+    profiles: ["tools"]
+
+volumes:
+  nn1:
+  nn2:
+  nn3:
+  dn1:
+  dn2:
+  dn3:
+  dn4:

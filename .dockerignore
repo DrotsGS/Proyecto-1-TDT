@@ -1,0 +1,9 @@
+venv/
+data/
+__pycache__/
+src/proto/gen/
+certs/
+deploy/certs/
+deploy/.env
+deploy/aws-salida/
+docs/
